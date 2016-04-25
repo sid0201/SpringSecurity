@@ -1,0 +1,294 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+
+	xmlns:oauth="http://www.springframework.org/schema/security/oauth2"
+
+	xmlns:sec="http://www.springframework.org/schema/security"
+
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+
+
+       http://www.springframework.org/schema/beans/spring-beans.xsd
+
+       http://www.springframework.org/schema/security
+
+       http://www.springframework.org/schema/security/spring-security-3.2.xsd
+
+       http://www.springframework.org/schema/security/oauth2
+
+       http://www.springframework.org/schema/security/spring-security-oauth2-1.0.xsd
+
+       http://www.springframework.org/schema/context
+
+       http://www.springframework.org/schema/context/spring-context.xsd">
+
+
+	<!-- Definition of the Authentication Service -->
+
+
+	<!-- create-session We can control exactly when our session gets created 
+		and how Spring Security will interact it:
+		1. always – a session will always be created if one doesn’t already exist 
+		2. ifRequired – a session will be created only if required (default)
+		3. never – the framework will never create a sessionitself but it will use one if it already exists
+		4. stateless – no session will be created or used by Spring Security pre-authenticated There are situations 
+		where you want to use Spring Security for authorization, but the user has 
+		already been reliably authenticated by some external system prior to accessing 
+		the application. We refer to these situations as “pre-authenticated” scenarios. -->
+
+	<http pattern="/oauth/token" create-session="stateless"
+		authentication-manager-ref="clientAuthenticationManager"
+
+		xmlns="http://www.springframework.org/schema/security">
+
+		<intercept-url pattern="/oauth/token" access="IS_AUTHENTICATED_FULLY" />
+
+		<anonymous enabled="false" />
+
+		<http-basic entry-point-ref="clientAuthenticationEntryPoint" />
+
+		<!-- include this only if you need to authenticate clients via request 
+			parameters -->
+		<custom-filter ref="clientCredentialsTokenEndpointFilter"
+			after="BASIC_AUTH_FILTER" />
+
+		<access-denied-handler ref="oauthAccessDeniedHandler" />
+
+	</http>
+
+	<!-- Protected resources This is where we tells spring security what URL 
+		should be protected and what roles have access to them -->
+
+	<http pattern="/user/**" create-session="never"
+
+		entry-point-ref="oauthAuthenticationEntryPoint" xmlns="http://www.springframework.org/schema/security"
+		use-expressions="true" auto-config="true">
+
+		<anonymous enabled="false" />
+
+		<intercept-url pattern="/user" access="hasAnyRole('ROLE_USER')"
+			method="GET" />
+		<!-- <intercept-url pattern="/createUser" access="hasAnyRole('ROLE_USER')" 
+			method="POST" /> -->
+		<custom-filter ref="resourceServerFilter" before="PRE_AUTH_FILTER" />
+
+		<access-denied-handler ref="oauthAccessDeniedHandler" />
+
+	</http>
+
+
+	<bean id="oauthAuthenticationEntryPoint"
+
+		class="org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint">
+
+		<property name="realmName" value="dstest" />
+
+	</bean>
+
+
+	<bean id="clientAuthenticationEntryPoint"
+
+		class="org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint">
+
+		<property name="realmName" value="dstest/client" />
+
+		<property name="typeName" value="Basic" />
+
+	</bean>
+
+
+	<bean id="oauthAccessDeniedHandler"
+
+		class="org.springframework.security.oauth2.provider.error.OAuth2AccessDeniedHandler" />
+
+
+	<bean id="clientCredentialsTokenEndpointFilter"
+
+		class="org.springframework.security.oauth2.provider.client.ClientCredentialsTokenEndpointFilter">
+
+		<property name="authenticationManager" ref="clientAuthenticationManager" />
+
+	</bean>
+
+
+	<bean id="accessDecisionManager" class="org.springframework.security.access.vote.UnanimousBased"
+
+		xmlns="http://www.springframework.org/schema/beans">
+
+		<constructor-arg>
+
+			<list>
+
+				<bean class="org.springframework.security.oauth2.provider.vote.ScopeVoter" />
+
+				<bean class="org.springframework.security.access.vote.RoleVoter" />
+
+				<bean class="org.springframework.security.access.vote.AuthenticatedVoter" />
+
+			</list>
+
+		</constructor-arg>
+
+	</bean>
+
+
+	<!-- Authentication in config file -->
+
+	<authentication-manager id="clientAuthenticationManager"
+		xmlns="http://www.springframework.org/schema/security">
+
+		<authentication-provider user-service-ref="clientDetailsUserService" />
+
+	</authentication-manager>
+
+
+
+<!-- 
+
+Try to write the user by username query so that it return 3 parameter in this order:
+
+username
+password
+enabled
+
+ -->
+	<authentication-manager alias="authenticationManager"
+		xmlns="http://www.springframework.org/schema/security">
+
+		<!-- <authentication-provider> <user-service> <user name="ttnd" password="1234" 
+			authorities="ROLE_dsdUSER" /> </user-service> </authentication-provider> -->
+
+		<authentication-provider>
+			<jdbc-user-service data-source-ref="dataSource"
+				users-by-username-query="select userName,password,1 from User where userName=?"
+				authorities-by-username-query="select userName,role from User where userName=?" />
+		</authentication-provider>
+
+	</authentication-manager>
+
+
+	<!-- <authentication-manager alias="authenticationManager" xmlns="http://www.springframework.org/schema/security"> 
+		<authentication-provider> <user-service> <user name="ttnd" password="1234" 
+		authorities="ROLE_dsdUSER" /> </user-service> </authentication-provider> 
+		<authentication-provider ref="CustomAuthenticationProvider"/> </authentication-manager> -->
+
+	<!-- <bean id="CustomAuthenticationProvider" class="com.ttnd.rivigo.fleet.util.CustomAuthenticationProvider" 
+		/> -->
+
+	<!-- <authentication-manager> <authentication-provider> <jdbc-user-service 
+		data-source-ref="dataSource" users-by-username-query= "select username,password, 
+		enabled from users where username=?" authorities-by-username-query= "select 
+		username, role from user_roles where username =? " /> </authentication-provider> 
+		</authentication-manager> -->
+
+
+	<bean id="clientDetailsUserService"
+
+		class="org.springframework.security.oauth2.provider.client.ClientDetailsUserDetailsService">
+
+		<constructor-arg ref="clientDetails" />
+
+	</bean>
+
+	<!-- Token Store -->
+
+	<!-- The default InMemoryTokenStore is perfectly fine for a single server 
+		(i.e. low traffic and no hot swap to a backup server in the case of failure). 
+		Most projects can start here, and maybe operate this way in development mode, 
+		to make it easy to start a server with no dependencies. (other services are JdbcTokenStore , JSON Web Token (JWT) version)-->
+		
+		
+	<bean id="tokenStore"
+		class="org.springframework.security.oauth2.provider.token.InMemoryTokenStore" />
+
+
+	<bean id="tokenServices"
+		class="org.springframework.security.oauth2.provider.token.DefaultTokenServices">
+
+		<property name="tokenStore" ref="tokenStore" />
+
+		<property name="supportRefreshToken" value="true" />
+
+		<property name="clientDetailsService" ref="clientDetails" />
+
+		<property name="accessTokenValiditySeconds" value="10" />
+
+	</bean>
+
+
+	<bean id="userApprovalHandler"
+
+		class="org.springframework.security.oauth2.provider.approval.TokenServicesUserApprovalHandler">
+
+		<property name="tokenServices" ref="tokenServices" />
+
+	</bean>
+
+
+	<!-- Token management -->
+
+	<oauth:authorization-server
+		client-details-service-ref="clientDetails" token-services-ref="tokenServices"
+
+		user-approval-handler-ref="userApprovalHandler">
+
+		<oauth:authorization-code />
+
+		<oauth:implicit />
+
+		<oauth:refresh-token />
+
+		<oauth:client-credentials />
+
+		<oauth:password />
+
+	</oauth:authorization-server>
+
+
+	<oauth:resource-server id="resourceServerFilter"
+
+		resource-id="dstest" token-services-ref="tokenServices" />
+
+
+	<!-- Client Definition -->
+
+	<oauth:client-details-service id="clientDetails">
+
+
+		<oauth:client client-id="myuser"
+
+			authorized-grant-types="password,authorization_code,refresh_token,implicit,redirect"
+
+			authorities="ROLE_USER" scope="read,write,trust" secret="secret"
+			access-token-validity="18000" refresh-token-validity="180000" />
+
+
+
+		<!-- redirect-uri="/web" -->
+
+
+
+	</oauth:client-details-service>
+
+
+
+	<sec:global-method-security
+		pre-post-annotations="enabled" proxy-target-class="true">
+
+		<sec:expression-handler ref="oauthExpressionHandler" />
+
+	</sec:global-method-security>
+
+	<oauth:expression-handler id="oauthExpressionHandler" />
+
+	<oauth:web-expression-handler id="oauthWebExpressionHandler" />
+
+	<!-- URL To get token by giving username & password http://localhost:8080/oauth/token?grant_type=password&client_id=myuser&client_secret=secret&username=ttnd&password=1234 -->
+	<!-- URL if token is expired refresh that token using refresh token http://localhost:8080/oauth/token?grant_type=refresh_token&client_id=myuser&client_secret=secret&refresh_token=cb24cd21-4c2f-4e56-9dcf-37b60ef447c7 -->
+
+	<!-- http://localhost:8080/oauth2/token?token=2f6d560e-b629-470c-815c-f0480419e7c8 -->
+	<!-- header value for token key :Authorization value:Bearer sdfsd3rwe23442343423423(token 
+		no.) -->
+
+</beans>
